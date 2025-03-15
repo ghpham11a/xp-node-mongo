@@ -1,6 +1,6 @@
 import { MongoClient } from 'mongodb';
 
-const mongoUrl = process.env.MONGO_URL || 'mongodb://localhost:27017/mydb';
+const mongoUrl = process.env.MONGO_URI || 'mongodb://localhost:27017/mydb';
 
 export let mongoClient: MongoClient;
 

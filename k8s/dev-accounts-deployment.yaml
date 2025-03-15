@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xp-node-mongo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xp-node-mongo
+  template:
+    metadata:
+      labels:
+        app: xp-node-mongo
+    spec:
+      containers:
+      - name: xp-node-mongo
+        image: xp-node-mongo:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+        envFrom:
+          - configMapRef:
+              name: xp-node-mongo-configmap
+        env:
+        - name: MONGO_URI
+          valueFrom:
+            secretKeyRef:
+              name: xp-node-mongo-secrets
+              key: MONGO_URI
+        # This given to us from Helm chart
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: xp-redis
+              key: redis-password
+        - name: KAFKA_SASL_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: xp-springboot-mysql-secrets
+              key: KAFKA_SASL_USERNAME
+        # This given to us from Helm chart
+        - name: KAFKA_SASL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: xp-kafka-user-passwords
+              key: client-passwords

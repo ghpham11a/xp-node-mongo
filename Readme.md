@@ -6,6 +6,8 @@ To run it locally
 npx ts-node src/index.ts
 ```
 
+
+
 ###### 1. Setup MongoDB
 
 Charts from Bitnami is needed for MongoDB
@@ -44,7 +46,7 @@ Insert Data
 
 ```sh
 # 3. Insert a single document
-db.users.insertOne({ name: "john_doe", email: "john@example.com" })
+db.accounts.insertOne({email: "john@email.com", dateOfBirth: "1998-10-11", accountNumber:"ACC-1234", balance: 150.00, createdAt: "1998-10-11"})
 
 # 4. Insert multiple documents
 db.users.insertMany([
@@ -140,13 +142,25 @@ Optional: connect to Redis
 
 ```sh
 # Store the password in Powershell
-$REDIS_PASSWORD = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String((kubectl get secret --namespace default xp-flask-postgres-redis -o jsonpath="{.data.redis-password}")))
+$REDIS_PASSWORD = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String((kubectl get secret --namespace default xp-node-mongo-redis -o jsonpath="{.data.redis-password}")))
 
 kubectl run --namespace default redis-client --restart='Never' --env REDIS_PASSWORD=$REDIS_PASSWORD  --image docker.io/bitnami/redis:7.4.2-debian-12-r4 --command -- sleep infinity
 
 kubectl exec --tty -i redis-client --namespace default -- bash
 
-redis-cli -h xp-flask-postgres-redis-master -p 6379
+redis-cli -h xp-node-mongo-redis-master -p 6379
 
 AUTH [REDIS_PASSWORD]
+```
+
+POST
+
+```
+{
+    "email": "jane@email.com",
+    "dateOfBirth": "1998-10-11",
+    "accountNumber": "ACC-5678",
+    "balance": 69,
+    "createdAt": "1998-10-11"
+}
 ```

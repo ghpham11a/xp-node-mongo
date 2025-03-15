@@ -1,9 +1,13 @@
 import { createClient } from 'redis';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'; // Or your custom config
 
 export const redisClient = createClient({
-  url: redisUrl,
+  socket: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+  },
+  // Provide the password here
+  password: process.env.REDIS_PASSWORD,
 });
 
 redisClient.on('error', (err) => {

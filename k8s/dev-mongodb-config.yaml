@@ -1,0 +1,6 @@
+auth:
+  enabled: true
+  rootPassword: mongodb-root-password
+  username: mongodb-username
+  password: mongodb-password
+  database: mongodb-database

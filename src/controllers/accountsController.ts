@@ -1,132 +1,174 @@
 import express, { Request, Response, NextFunction } from 'express';
+import { ObjectId } from 'mongodb';
 
 import { Account } from '../models/account';
-
 import { mongoClient } from '../extensions/mongoClient';
-import { getKafkaProducer } from '../extensions/kafkaClient';
-import { redisClient } from '../extensions/redisClient';
+import { getKafkaProducer } from '../extensions/kafkaClient'; // Not used yet
+import { redisClient } from '../extensions/redisClient';       // Not used yet
 
 const router = express.Router();
 
-var accounts: Account[] = [
-  {
-    id: 1,
-    email: 'john.doe@example.com',
-    dateOfBirth: '1985-06-15',
-    accountNumber: 'ACC123',
-    balance: 1000,
-    createdAt: '2023-03-14T10:00:00Z',
-  },
-  {
-    id: 2,
-    email: 'jane.smith@example.com',
-    dateOfBirth: '1990-09-10',
-    accountNumber: 'ACC456',
-    balance: 2500,
-    createdAt: '2023-03-14T12:30:00Z',
-  },
-  {
-    id: 3,
-    email: 'alice.jones@example.com',
-    dateOfBirth: '1978-01-22',
-    accountNumber: 'ACC789',
-    balance: 4200.5,
-    createdAt: '2023-03-14T15:45:00Z',
-  },
-];
+/**
+ * @desc   Get all accounts
+ * @route  GET /api/accounts
+ */
+export const getAccounts = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const limit = parseInt(req.query.limit as string, 10);
+        const db = mongoClient.db(process.env.MONGO_DB);
+        const collection = db.collection<Account>(process.env.MONGO_COLLECTION || "");
 
-// @desc   Get all posts
-// @route  GET /api/posts
-const getAccounts = (req: Request, res: Response, next: NextFunction) => {
-    // const limit = parseInt(req.query.limit as string);
+        let cursor = collection.find({});
 
-    const limit: number = parseInt((req.query as any).limit, 10);
+        // If "limit" is valid, apply it
+        if (!isNaN(limit) && limit > 0) {
+            cursor = cursor.limit(limit);
+        }
 
-    if (!isNaN(limit) && limit > 0) {
-        res.status(200).json(accounts.slice(0, limit));
+        const results = await cursor.toArray();
+        res.status(200).json(results);
+    } catch (err) {
+        next(err);
     }
-
-    res.status(200).json(accounts);
 };
 
-// @desc    Get single post
-// @route   GET /api/posts/:id
-const getAccount = (req: Request, res: Response, next: NextFunction) => {
-    const id = parseInt(req.params.id);
-    const post = accounts.find((accounts) => accounts.id === id);
+export const getAccount = async (req: Request, res: Response, next: NextFunction) => {
+    try {
 
-    if (!post) {
-        const error = new Error(`A post with the id of ${id} was not found`);
-        (error as any).status = 404;
-        return next(error);
+        const id = req.params.id;
+        const cacheKey = `account:${id}`;
+
+        // 1. Check the Redis cache
+        const cachedAccount = await redisClient.get(cacheKey);
+        if (cachedAccount) {
+            // If the account was found in cache, return it
+            const accountFromCache = JSON.parse(cachedAccount);
+            res.setHeader('X-Cache', 'HIT');
+            res.status(200).json(accountFromCache);
+        }
+
+        // 2. If not in cache, fetch from MongoDB
+        const db = mongoClient.db(process.env.MONGO_DB);
+        const collection = db.collection<Account>(process.env.MONGO_COLLECTION || "");
+
+        const account = await collection.findOne({ _id: new ObjectId(id) });
+        if (!account) {
+            const error = new Error(`Account with id ${id} not found.`);
+            (error as any).status = 404;
+            next(error);
+        }
+
+        // 3. Store the result in Redis before returning the data
+        // Optionally set an expiration (in seconds) if desired: 
+        // await redisClient.set(cacheKey, JSON.stringify(account), { EX: 60 * 5 }); // expires in 5 min
+        await redisClient.set(cacheKey, JSON.stringify(account));
+
+        res.status(200).json(account);
+    } catch (err) {
+        next(err);
     }
-
-    res.status(200).json(post);
 };
 
-// @desc    Create new post
-// @route   POST /api/posts
-const createAccount = (req: Request, res: Response, next: NextFunction) => {
-    const newPost = {
-        id: accounts.length + 1,
-        title: req.body.title,
-    };
+/**
+ * @desc   Create new account
+ * @route  POST /api/accounts
+ */
+export const createAccount = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { email, dateOfBirth, accountNumber, balance } = req.body as Account;
 
-    if (!newPost.title) {
-        const error = new Error(`Please include a title`);
-        (error as any).status = 400;
-        return next(error);
+        // Basic validation (e.g., check for required fields)
+        if (!email) {
+            const error = new Error(`Please include an "email" field.`);
+            (error as any).status = 400;
+            next(error);
+        }
+
+        const db = mongoClient.db(process.env.MONGO_DB);
+        const collection = db.collection<Account>(process.env.MONGO_COLLECTION || "");
+
+        const newAccount: Account = {
+            email,
+            dateOfBirth,
+            accountNumber,
+            balance,
+            createdAt: new Date().toISOString(),
+        };
+
+        const result = await collection.insertOne(newAccount);
+        // newAccount.id = parseInt(result.insertedid.toString());
+        res.status(201).json(newAccount);
+    } catch (err) {
+        next(err);
     }
-
-    accounts.push(newPost);
-    res.status(201).json(accounts);
 };
 
-// @desc    Update post
-// @route   PUT /api/posts/:id
-const updateAccount = (req: Request, res: Response, next: NextFunction) => {
-    const id = parseInt(req.params.id);
-    const post = accounts.find((post) => post.id === id);
+/**
+ * @desc   Update account by _id
+ * @route  PUT /api/accounts/:id
+ */
+export const updateAccount = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id;
+        const db = mongoClient.db(process.env.MONGO_DB);
+        const collection = db.collection<Account>(process.env.MONGO_COLLECTION || "");
 
-    if (!post) {
-        const error = new Error(`A post with the id of ${id} was not found`);
-        (error as any).status = 404;
-        return next(error);
+        // Extract updated fields from request body
+        const { email, dateOfBirth, accountNumber, balance } = req.body as Account;
+
+        // Build the "$set" object dynamically
+        const updateFields: Partial<Account> = {};
+        if (email !== undefined) updateFields.email = email;
+        if (dateOfBirth !== undefined) updateFields.dateOfBirth = dateOfBirth;
+        if (accountNumber !== undefined) updateFields.accountNumber = accountNumber;
+        if (balance !== undefined) updateFields.balance = balance;
+
+        const result = await collection.findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            { $set: updateFields },
+            { returnDocument: 'after' }
+        );
+
+        if (!result) {
+            const error = new Error(`Account with id ${id} not found or not updated.`);
+            (error as any).status = 404;
+            next(error);
+        }
+
+        res.status(200).json(result);
+    } catch (err) {
+        next(err);
     }
-
-    post.email = req.body.title;
-    res.status(200).json(accounts);
 };
 
-// @desc    Delete post
-// @route   DELETE /api/posts/:id
-const deleteAccount = (req: Request, res: Response, next: NextFunction) => {
-    const id = parseInt(req.params.id);
-    const account = accounts.find((account) => account.id === id);
+/**
+ * @desc   Delete an account by _id
+ * @route  DELETE /api/accounts/:id
+ */
+export const deleteAccount = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const id = req.params.id;
+        const db = mongoClient.db(process.env.MONGO_DB);
+        const collection = db.collection<Account>(process.env.MONGO_COLLECTION || "");
 
-    if (!account) {
-        const error = new Error(`A post with the id of ${id} was not found`);
-        (error as any).status = 404;
-        return next(error);
+        const result = await collection.deleteOne({ _id: new ObjectId(id) });
+        if (result.deletedCount === 0) {
+            const error = new Error(`Account with id ${id} not found.`);
+            (error as any).status = 404;
+            next(error);
+        }
+
+        res.status(200).json({ message: `Account with id ${id} has been deleted.` });
+    } catch (err) {
+        next(err);
     }
-
-    accounts = accounts.filter((account) => account.id !== id);
-    res.status(200).json(accounts);
 };
 
-// Get all posts
+// Attach controller methods to Express router
 router.get('/', getAccounts);
-
-// Get single post
 router.get('/:id', getAccount);
-
-// Create new post
 router.post('/', createAccount);
-
-// Update Post
 router.put('/:id', updateAccount);
-
-// Delete Post
 router.delete('/:id', deleteAccount);
 
 export default router;
